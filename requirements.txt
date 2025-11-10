@@ -1,0 +1,24 @@
+# Deep Learning and RL frameworks
+torch>=2.0.0
+numpy>=1.21.0
+gym>=0.26.0
+
+# Graph processing
+networkx>=2.8.0
+pydotplus>=2.0.2
+graphviz>=0.20.0
+
+# Configuration and utilities
+pyyaml>=6.0.0
+matplotlib>=3.5.0
+seaborn>=0.12.0
+pandas>=1.5.0
+tqdm>=4.64.0
+
+# Optional: GPU support
+# torch-cuda==11.8  # Uncomment if using CUDA
+
+# Development
+pytest>=7.0.0
+black>=22.0.0
+
