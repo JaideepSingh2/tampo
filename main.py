@@ -15,7 +15,7 @@ from algorithms.heuristic.pso import PSOScheduler
 from algorithms.heuristic.ga import GAScheduler
 from algorithms.rl.ppo_baseline import PPOAgent
 from algorithms.rl.gmorl import GMORLAgent
-from algorithms.rl.tampo import TAMPOAgent
+from algorithms.rl.tampo import TAMPOFramework
 
 def load_config(config_path):
     """Load configuration from YAML file"""
@@ -28,110 +28,214 @@ def setup_environment(config):
     env = TaskOffloadingEnv(config['system'])
     return env
 
-def test_heuristic_algorithms(env, dag_parser, config):
-    """Test all heuristic algorithms"""
-    print("\n" + "="*60)
-    print("Testing Heuristic Algorithms")
-    print("="*60)
+def get_user_input():
+    """Get user input for which algorithms to run"""
+    print("\n" + "="*70)
+    print(" "*20 + "ALGORITHM SELECTION")
+    print("="*70 + "\n")
     
-    results = {}
+    algorithms = {}
     
-    # Load DAG tasks
-    dags = dag_parser.load_dataset(num_graphs=10)
+    # Heuristic algorithms
+    print("HEURISTIC ALGORITHMS:")
+    print("-" * 40)
+    
+    heft = input("Run HEFT? (yes/no): ").strip().lower()
+    algorithms['HEFT'] = heft in ['yes', 'y']
+    
+    pso = input("Run PSO? (yes/no): ").strip().lower()
+    algorithms['PSO'] = pso in ['yes', 'y']
+    
+    ga = input("Run GA? (yes/no): ").strip().lower()
+    algorithms['GA'] = ga in ['yes', 'y']
+    
+    if any([algorithms['HEFT'], algorithms['PSO'], algorithms['GA']]):
+        heuristic_tasks = input("Number of test tasks for heuristics (default 10): ").strip()
+        algorithms['heuristic_tasks'] = int(heuristic_tasks) if heuristic_tasks else 10
+    else:
+        algorithms['heuristic_tasks'] = 10
+    
+    # RL algorithms
+    print("\n\nREINFORCEMENT LEARNING ALGORITHMS:")
+    print("-" * 40)
+    
+    ppo_run = input("Run PPO? (yes/no): ").strip().lower()
+    algorithms['PPO'] = ppo_run in ['yes', 'y']
+    
+    gmorl_run = input("Run GMORL? (yes/no): ").strip().lower()
+    algorithms['GMORL'] = gmorl_run in ['yes', 'y']
+    
+    tampo_run = input("Run TAMPO? (yes/no): ").strip().lower()
+    algorithms['TAMPO'] = tampo_run in ['yes', 'y']
+    
+    # Common training/evaluation parameters for RL
+    if any([algorithms['PPO'], algorithms['GMORL'], algorithms['TAMPO']]):
+        print("\n\nRL TRAINING & EVALUATION PARAMETERS:")
+        print("-" * 40)
+        
+        # Training episodes/iterations
+        if algorithms['PPO']:
+            ppo_episodes = input("Number of training episodes for PPO (default 100): ").strip()
+            algorithms['ppo_episodes'] = int(ppo_episodes) if ppo_episodes else 100
+        else:
+            algorithms['ppo_episodes'] = 100
+        
+        if algorithms['GMORL']:
+            gmorl_episodes = input("Number of training episodes for GMORL (default 100): ").strip()
+            algorithms['gmorl_episodes'] = int(gmorl_episodes) if gmorl_episodes else 100
+        else:
+            algorithms['gmorl_episodes'] = 100
+        
+        if algorithms['TAMPO']:
+            tampo_iterations = input("Number of meta-iterations for TAMPO (default 100): ").strip()
+            algorithms['tampo_iterations'] = int(tampo_iterations) if tampo_iterations else 100
+        else:
+            algorithms['tampo_iterations'] = 100
+        
+        # Common evaluation episodes
+        eval_episodes = input("Number of evaluation episodes for all RL algorithms (default 20): ").strip()
+        algorithms['eval_episodes'] = int(eval_episodes) if eval_episodes else 20
+    else:
+        algorithms['ppo_episodes'] = 100
+        algorithms['gmorl_episodes'] = 100
+        algorithms['tampo_iterations'] = 100
+        algorithms['eval_episodes'] = 20
+    
+    # Summary
+    print("\n" + "="*70)
+    print(" "*25 + "CONFIGURATION SUMMARY")
+    print("="*70)
+    
+    selected = []
+    if algorithms['HEFT']:
+        selected.append(f"HEFT")
+    if algorithms['PSO']:
+        selected.append(f"PSO")
+    if algorithms['GA']:
+        selected.append(f"GA")
+    if algorithms['PPO']:
+        selected.append(f"PPO ({algorithms['ppo_episodes']} training episodes)")
+    if algorithms['GMORL']:
+        selected.append(f"GMORL ({algorithms['gmorl_episodes']} training episodes)")
+    if algorithms['TAMPO']:
+        selected.append(f"TAMPO ({algorithms['tampo_iterations']} meta-iterations)")
+    
+    if len(selected) == 0:
+        print("\n⚠️  No algorithms selected. Exiting...")
+        return None
+    
+    print("\nSelected Algorithms:")
+    for i, alg in enumerate(selected, 1):
+        print(f"  {i}. {alg}")
+    
+    if any([algorithms['HEFT'], algorithms['PSO'], algorithms['GA']]):
+        print(f"\nHeuristic test tasks: {algorithms['heuristic_tasks']}")
+    
+    if any([algorithms['PPO'], algorithms['GMORL'], algorithms['TAMPO']]):
+        print(f"RL evaluation episodes: {algorithms['eval_episodes']} (common for all RL algorithms)")
+    
+    print("\n" + "="*70)
+    
+    confirm = input("\nProceed with this configuration? (yes/no): ").strip().lower()
+    if confirm not in ['yes', 'y']:
+        print("Configuration cancelled.")
+        return None
+    
+    return algorithms
+
+def test_heft(env, dag_parser, num_tasks=10):
+    """Test HEFT algorithm"""
+    print("\nTesting HEFT...")
+    dags = dag_parser.load_dataset(num_graphs=num_tasks)
     
     if len(dags) == 0:
-        print("Warning: No DAG graphs loaded. Skipping heuristic algorithms.")
-        return results
+        print("Warning: No DAG graphs loaded.")
+        return None
     
-    # Test HEFT
-    if config['algorithms']['heft']['enabled']:
-        print("\n[1/3] Testing HEFT...")
-        heft = HEFTScheduler(env)
-        heft_delays = []
-        heft_energies = []
-        
-        for dag in dags:
-            schedule, delay, energy = heft.schedule(dag)
-            heft_delays.append(delay)
-            heft_energies.append(energy)
-        
-        results['HEFT'] = {
-            'avg_delay': np.mean(heft_delays),
-            'avg_energy': np.mean(heft_energies),
-            'std_delay': np.std(heft_delays),
-            'std_energy': np.std(heft_energies)
-        }
-        print(f"  Avg Delay: {results['HEFT']['avg_delay']:.4f}s")
-        print(f"  Avg Energy: {results['HEFT']['avg_energy']:.4f}J")
+    heft = HEFTScheduler(env)
+    delays, energies = [], []
     
-    # Test PSO
-    if config['algorithms']['pso']['enabled']:
-        print("\n[2/3] Testing PSO...")
-        pso = PSOScheduler(env, config['algorithms']['pso'])
-        pso_delays = []
-        pso_energies = []
-        
-        for dag in dags:
-            preference = np.array([0.5, 0.5])
-            schedule, delay, energy = pso.optimize(dag, preference)
-            pso_delays.append(delay)
-            pso_energies.append(energy)
-        
-        results['PSO'] = {
-            'avg_delay': np.mean(pso_delays),
-            'avg_energy': np.mean(pso_energies),
-            'std_delay': np.std(pso_delays),
-            'std_energy': np.std(pso_energies)
-        }
-        print(f"  Avg Delay: {results['PSO']['avg_delay']:.4f}s")
-        print(f"  Avg Energy: {results['PSO']['avg_energy']:.4f}J")
+    for dag in dags:
+        schedule, delay, energy = heft.schedule(dag)
+        delays.append(delay)
+        energies.append(energy)
     
-    # Test GA
-    if config['algorithms']['ga']['enabled']:
-        print("\n[3/3] Testing GA...")
-        ga = GAScheduler(env, config['algorithms']['ga'])
-        ga_delays = []
-        ga_energies = []
-        
-        for dag in dags:
-            preference = np.array([0.5, 0.5])
-            schedule, delay, energy = ga.optimize(dag, preference)
-            ga_delays.append(delay)
-            ga_energies.append(energy)
-        
-        results['GA'] = {
-            'avg_delay': np.mean(ga_delays),
-            'avg_energy': np.mean(ga_energies),
-            'std_delay': np.std(ga_delays),
-            'std_energy': np.std(ga_energies)
-        }
-        print(f"  Avg Delay: {results['GA']['avg_delay']:.4f}s")
-        print(f"  Avg Energy: {results['GA']['avg_energy']:.4f}J")
-    
-    return results
+    result = {
+        'avg_delay': np.mean(delays),
+        'avg_energy': np.mean(energies),
+        'std_delay': np.std(delays),
+        'std_energy': np.std(energies)
+    }
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    return result
 
-def test_rl_algorithms(env, config):
-    """Test RL algorithms"""
-    print("\n" + "="*60)
-    print("Testing RL Algorithms")
-    print("="*60)
+def test_pso(env, dag_parser, config, num_tasks=10):
+    """Test PSO algorithm"""
+    print("\nTesting PSO...")
+    dags = dag_parser.load_dataset(num_graphs=num_tasks)
     
-    results = {}
+    if len(dags) == 0:
+        print("Warning: No DAG graphs loaded.")
+        return None
     
-    # Increase training episodes significantly
-    NUM_TRAINING_EPISODES = 2000  # Much more training!
-    NUM_EVAL_EPISODES = 20  # More evaluation episodes
+    pso = PSOScheduler(env, config['algorithms']['pso'])
+    delays, energies = [], []
     
-    # Test PPO
-    print(f"\n[1/3] Training PPO Baseline ({NUM_TRAINING_EPISODES} episodes)...")
+    for dag in dags:
+        preference = np.array([0.5, 0.5])
+        schedule, delay, energy = pso.optimize(dag, preference)
+        delays.append(delay)
+        energies.append(energy)
+    
+    result = {
+        'avg_delay': np.mean(delays),
+        'avg_energy': np.mean(energies),
+        'std_delay': np.std(delays),
+        'std_energy': np.std(energies)
+    }
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    return result
+
+def test_ga(env, dag_parser, config, num_tasks=10):
+    """Test GA algorithm"""
+    print("\nTesting GA...")
+    dags = dag_parser.load_dataset(num_graphs=num_tasks)
+    
+    if len(dags) == 0:
+        print("Warning: No DAG graphs loaded.")
+        return None
+    
+    ga = GAScheduler(env, config['algorithms']['ga'])
+    delays, energies = [], []
+    
+    for dag in dags:
+        preference = np.array([0.5, 0.5])
+        schedule, delay, energy = ga.optimize(dag, preference)
+        delays.append(delay)
+        energies.append(energy)
+    
+    result = {
+        'avg_delay': np.mean(delays),
+        'avg_energy': np.mean(energies),
+        'std_delay': np.std(delays),
+        'std_energy': np.std(energies)
+    }
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    return result
+
+def test_ppo(env, config, train_episodes=100, eval_episodes=20):
+    """Test PPO algorithm"""
+    print(f"\nTraining PPO ({train_episodes} episodes)...")
     ppo = PPOAgent(env, config['training'])
-    ppo.train(num_episodes=NUM_TRAINING_EPISODES)
+    ppo.train(num_episodes=train_episodes)
     
-    # Evaluate PPO
-    print("Evaluating PPO...")
-    ppo_delays = []
-    ppo_energies = []
-    for eval_ep in range(NUM_EVAL_EPISODES):
+    print(f"Evaluating PPO ({eval_episodes} episodes)...")
+    delays, energies = [], []
+    
+    for _ in range(eval_episodes):
         state = env.reset()
         done = False
         episode_delay = 0
@@ -143,152 +247,107 @@ def test_rl_algorithms(env, config):
             episode_delay += info['delay']
             episode_energy += info['energy']
         
-        ppo_delays.append(episode_delay)
-        ppo_energies.append(episode_energy)
+        delays.append(episode_delay)
+        energies.append(episode_energy)
     
-    results['PPO'] = {
-        'avg_delay': np.mean(ppo_delays),
-        'avg_energy': np.mean(ppo_energies),
-        'std_delay': np.std(ppo_delays),
-        'std_energy': np.std(ppo_energies)
+    result = {
+        'avg_delay': np.mean(delays),
+        'avg_energy': np.mean(energies),
+        'std_delay': np.std(delays),
+        'std_energy': np.std(energies)
     }
-    print(f"  Avg Delay: {results['PPO']['avg_delay']:.4f}s")
-    print(f"  Avg Energy: {results['PPO']['avg_energy']:.4f}J")
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    return result
+
+def test_gmorl(env, config, train_episodes=100, eval_episodes=20):
+    """Test GMORL algorithm"""
+    print(f"\nTraining GMORL ({train_episodes} episodes)...")
+    gmorl = GMORLAgent(env, config['training'])
+    gmorl.train(num_episodes=train_episodes)
     
-    # Test GMORL
-    if config['algorithms']['gmorl']['enabled']:
-        print(f"\n[2/3] Training GMORL ({NUM_TRAINING_EPISODES} episodes)...")
-        gmorl = GMORLAgent(env, config['training'])
-        gmorl.train(num_episodes=NUM_TRAINING_EPISODES)
-        
-        # Evaluate GMORL with different preferences
-        print("Evaluating GMORL...")
-        preferences = [
-            np.array([0.8, 0.2]),  # Delay-focused
-            np.array([0.5, 0.5]),  # Balanced
-            np.array([0.2, 0.8])   # Energy-focused
-        ]
-        
-        gmorl_delays = []
-        gmorl_energies = []
-        
-        for pref in preferences:
-            for _ in range(NUM_EVAL_EPISODES // 3):
-                state = env.reset(preference_vector=pref)
-                done = False
-                episode_delay = 0
-                episode_energy = 0
-                
-                while not done:
-                    action, _, _ = gmorl.select_action(state, pref, deterministic=True)
-                    state, reward, done, info = env.step(action)
-                    episode_delay += info['delay']
-                    episode_energy += info['energy']
-                
-                gmorl_delays.append(episode_delay)
-                gmorl_energies.append(episode_energy)
-        
-        results['GMORL'] = {
-            'avg_delay': np.mean(gmorl_delays),
-            'avg_energy': np.mean(gmorl_energies),
-            'std_delay': np.std(gmorl_delays),
-            'std_energy': np.std(gmorl_energies)
+    print(f"Evaluating GMORL ({eval_episodes} episodes)...")
+    preferences = [
+        np.array([0.8, 0.2]),  # Delay-focused
+        np.array([0.5, 0.5]),  # Balanced
+        np.array([0.2, 0.8])   # Energy-focused
+    ]
+    
+    delays, energies = [], []
+    
+    for pref in preferences:
+        for _ in range(eval_episodes // 3):
+            state = env.reset(preference_vector=pref)
+            done = False
+            episode_delay = 0
+            episode_energy = 0
+            
+            while not done:
+                action, _, _ = gmorl.select_action(state, pref, deterministic=True)
+                state, reward, done, info = env.step(action)
+                episode_delay += info['delay']
+                episode_energy += info['energy']
+            
+            delays.append(episode_delay)
+            energies.append(episode_energy)
+    
+    result = {
+        'avg_delay': np.mean(delays),
+        'avg_energy': np.mean(energies),
+        'std_delay': np.std(delays),
+        'std_energy': np.std(energies)
+    }
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    return result
+
+def test_tampo(env, dag_parser, config, train_iterations=100, eval_episodes=20):
+    """Test TAM-PO algorithm"""
+    print(f"\nTraining TAM-PO ({train_iterations} iterations)...")
+    
+    # Load task dataset
+    task_graphs = dag_parser.load_dataset(num_graphs=50)
+    
+    if len(task_graphs) == 0:
+        print("Warning: No task graphs loaded.")
+        return None
+    
+    # Convert DAG format
+    tasks_for_env = []
+    for dag in task_graphs:
+        task = {
+            'num_tasks': dag['num_tasks'],
+            'tasks': dag['tasks'],
+            'edges': dag['edges'],
+            'size': sum(t['data_size'] for t in dag['tasks']),
+            'cycles': sum(t['cycles'] for t in dag['tasks'])
         }
-        print(f"  Avg Delay: {results['GMORL']['avg_delay']:.4f}s")
-        print(f"  Avg Energy: {results['GMORL']['avg_energy']:.4f}J")
+        tasks_for_env.append(task)
     
-    # Test TAM-PO
-    if config['algorithms']['tampo']['enabled']:
-        print("\n[3/3] Training TAM-PO...")
-        
-        # Load task dataset for meta-learning
-        dag_parser = DAGParser(data_folder="data/meta_offloading_20/offload_random20_1")
-        task_graphs = dag_parser.load_dataset(num_graphs=50)  # Load more tasks
-        
-        if len(task_graphs) == 0:
-            print("Warning: No task graphs loaded. Skipping TAM-PO.")
-        else:
-            # Convert DAG format to task format
-            tasks_for_env = []
-            for dag in task_graphs:
-                task = {
-                    'num_tasks': dag['num_tasks'],
-                    'tasks': dag['tasks'],
-                    'edges': dag['edges'],
-                    'size': sum(t['data_size'] for t in dag['tasks']),
-                    'cycles': sum(t['cycles'] for t in dag['tasks'])
-                }
-                tasks_for_env.append(task)
-            
-            # Load tasks into environment
-            env.load_task_dataset(tasks_for_env)
-            
-            tampo = TAMPOAgent(env, config['training'])
-            
-            # Meta-training with more iterations
-            print(f"Meta-training with {len(tasks_for_env)} tasks...")
-            tampo.meta_train(
-                num_iterations=100,  # More meta-iterations
-                meta_batch_size=min(10, len(tasks_for_env))
-            )
-            
-            # Evaluate TAM-PO properly
-            print("Evaluating TAM-PO...")
-            tampo_delays = []
-            tampo_energies = []
-            
-            for _ in range(NUM_EVAL_EPISODES):
-                # Sample a task
-                task_id = env.sample_tasks(1)[0]
-                env.set_task(task_id)
-                
-                # Inner loop adaptation
-                adapted_params = tampo.inner_loop_adaptation(task_id, num_steps=5)
-                
-                # Create adapted policy
-                adapted_policy = type(tampo.meta_policy)(
-                    env.observation_space.shape[0],
-                    env.action_space.n
-                ).to(tampo.device)
-                adapted_policy.load_state_dict(adapted_params)
-                adapted_policy.eval()
-                
-                # Test with adapted policy
-                state = env.reset()
-                preference = tampo.sample_preference()
-                done = False
-                episode_delay = 0
-                episode_energy = 0
-                
-                while not done:
-                    import torch
-                    from torch.distributions import Categorical
-                    
-                    state_tensor = torch.FloatTensor(state).unsqueeze(0).to(tampo.device)
-                    pref_tensor = torch.FloatTensor(preference).unsqueeze(0).to(tampo.device)
-                    
-                    with torch.no_grad():
-                        logits = adapted_policy(state_tensor, pref_tensor)
-                        action_probs = torch.softmax(logits, dim=-1)
-                        action = torch.argmax(action_probs, dim=-1).item()
-                    
-                    state, reward, done, info = env.step(action)
-                    episode_delay += info['delay']
-                    episode_energy += info['energy']
-                
-                tampo_delays.append(episode_delay)
-                tampo_energies.append(episode_energy)
-            
-            results['TAMPO'] = {
-                'avg_delay': np.mean(tampo_delays),
-                'avg_energy': np.mean(tampo_energies),
-                'std_delay': np.std(tampo_delays),
-                'std_energy': np.std(tampo_energies)
-            }
-            print(f"  Avg Delay: {results['TAMPO']['avg_delay']:.4f}s")
-            print(f"  Avg Energy: {results['TAMPO']['avg_energy']:.4f}J")
+    # Load tasks into environment
+    env.load_task_dataset(tasks_for_env)
     
-    return results
+    # Create and train TAM-PO
+    tampo_framework = TAMPOFramework(env, config['training'])
+    tampo_framework.train(
+        num_iterations=train_iterations,
+        meta_batch_size=min(10, len(tasks_for_env))
+    )
+    
+    # Evaluate
+    print(f"Evaluating TAM-PO ({eval_episodes} episodes)...")
+    result = tampo_framework.evaluate(num_episodes=eval_episodes)
+    
+    print(f"  Avg Delay: {result['avg_delay']:.4f}s")
+    print(f"  Avg Energy: {result['avg_energy']:.4f}J")
+    
+    # Save model
+    model_dir = "models"
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, "tampo_trained.pth")
+    tampo_framework.save(model_path)
+    
+    return result
 
 def save_results(results, output_dir):
     """Save results to JSON and generate plots"""
@@ -300,7 +359,7 @@ def save_results(results, output_dir):
         json.dump(results, f, indent=4)
     print(f"\nResults saved to {results_file}")
     
-    # Generate comparison plots
+    # Generate plots if results exist
     if len(results) > 0:
         plot_comparison(results, output_dir)
 
@@ -310,102 +369,167 @@ def plot_comparison(results, output_dir):
     delays = [results[alg]['avg_delay'] for alg in algorithms]
     energies = [results[alg]['avg_energy'] for alg in algorithms]
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
     
     # Delay comparison
-    ax1.bar(algorithms, delays, color=['blue', 'orange', 'green', 'red', 'purple', 'brown'][:len(algorithms)])
-    ax1.set_ylabel('Average Delay (s)')
-    ax1.set_title('Delay Comparison')
+    colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c']
+    ax1.bar(algorithms, delays, color=colors[:len(algorithms)], alpha=0.8, edgecolor='black')
+    ax1.set_ylabel('Average Delay (s)', fontsize=12, fontweight='bold')
+    ax1.set_title('Delay Comparison', fontsize=14, fontweight='bold')
     ax1.tick_params(axis='x', rotation=45)
-    ax1.grid(axis='y', alpha=0.3)
+    ax1.grid(axis='y', alpha=0.3, linestyle='--')
+    
+    for i, (alg, delay) in enumerate(zip(algorithms, delays)):
+        ax1.text(i, delay, f'{delay:.2f}', ha='center', va='bottom', fontsize=9)
     
     # Energy comparison
-    ax2.bar(algorithms, energies, color=['blue', 'orange', 'green', 'red', 'purple', 'brown'][:len(algorithms)])
-    ax2.set_ylabel('Average Energy (J)')
-    ax2.set_title('Energy Comparison')
+    ax2.bar(algorithms, energies, color=colors[:len(algorithms)], alpha=0.8, edgecolor='black')
+    ax2.set_ylabel('Average Energy (J)', fontsize=12, fontweight='bold')
+    ax2.set_title('Energy Comparison', fontsize=14, fontweight='bold')
     ax2.tick_params(axis='x', rotation=45)
-    ax2.grid(axis='y', alpha=0.3)
+    ax2.grid(axis='y', alpha=0.3, linestyle='--')
+    
+    for i, (alg, energy) in enumerate(zip(algorithms, energies)):
+        ax2.text(i, energy, f'{energy:.2f}', ha='center', va='bottom', fontsize=9)
     
     plt.tight_layout()
     plot_file = os.path.join(output_dir, 'comparison.png')
-    plt.savefig(plot_file, dpi=300)
+    plt.savefig(plot_file, dpi=300, bbox_inches='tight')
     print(f"Comparison plot saved to {plot_file}")
+    plt.close()
     
     # Pareto front plot
-    plt.figure(figsize=(8, 6))
-    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
-    for i, alg in enumerate(algorithms):
-        plt.scatter(results[alg]['avg_delay'], 
-                   results[alg]['avg_energy'],
-                   label=alg, s=200, alpha=0.7, 
-                   color=colors[i % len(colors)])
+    plt.figure(figsize=(10, 8))
     
-    plt.xlabel('Delay (s)', fontsize=12)
-    plt.ylabel('Energy (J)', fontsize=12)
-    plt.title('Pareto Front Comparison', fontsize=14)
-    plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
+    for i, alg in enumerate(algorithms):
+        plt.scatter(
+            results[alg]['avg_delay'], 
+            results[alg]['avg_energy'],
+            label=alg, 
+            s=300, 
+            alpha=0.7, 
+            color=colors[i % len(colors)],
+            edgecolors='black',
+            linewidths=2
+        )
+        
+        plt.annotate(
+            alg,
+            (results[alg]['avg_delay'], results[alg]['avg_energy']),
+            xytext=(10, 10),
+            textcoords='offset points',
+            fontsize=10,
+            bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.3)
+        )
+    
+    plt.xlabel('Average Delay (s)', fontsize=14, fontweight='bold')
+    plt.ylabel('Average Energy (J)', fontsize=14, fontweight='bold')
+    plt.title('Pareto Front: Delay vs Energy Trade-off', fontsize=16, fontweight='bold')
+    plt.legend(fontsize=11, loc='best', framealpha=0.9)
+    plt.grid(True, alpha=0.4, linestyle='--')
+    
+    if len(delays) > 0 and len(energies) > 0:
+        plt.axvline(x=min(delays), color='green', linestyle='--', alpha=0.5, label='Best Delay')
+        plt.axhline(y=min(energies), color='blue', linestyle='--', alpha=0.5, label='Best Energy')
     
     pareto_file = os.path.join(output_dir, 'pareto_front.png')
-    plt.savefig(pareto_file, dpi=300)
+    plt.savefig(pareto_file, dpi=300, bbox_inches='tight')
     print(f"Pareto front plot saved to {pareto_file}")
+    plt.close()
 
 def main():
-    parser = argparse.ArgumentParser(description='Task Offloading Algorithm Comparison')
-    parser.add_argument('--config', type=str, default='configs/default_config.yaml',
-                       help='Path to configuration file')
-    parser.add_argument('--output', type=str, default='results',
-                       help='Output directory for results')
-    parser.add_argument('--test-heuristic', action='store_true',
-                       help='Test heuristic algorithms')
-    parser.add_argument('--test-rl', action='store_true',
-                       help='Test RL algorithms')
-    parser.add_argument('--quick', action='store_true',
-                       help='Quick test with fewer episodes')
+    # Print banner
+    print("\n" + "="*70)
+    print(" "*10 + "TASK OFFLOADING ALGORITHM COMPARISON FRAMEWORK")
+    print(" "*20 + "Interactive Mode")
+    print("="*70 + "\n")
     
-    args = parser.parse_args()
+    # Get user input
+    user_choices = get_user_input()
+    
+    if user_choices is None:
+        return
     
     # Load configuration
-    print("Loading configuration...")
-    config = load_config(args.config)
-    
-    # Adjust for quick test
-    if args.quick:
-        print("Running in QUICK mode (fewer training episodes)")
-        # Will use fewer episodes in test_rl_algorithms
+    print("\n📋 Loading configuration...")
+    config = load_config('configs/default_config.yaml')
+    print("✓ Configuration loaded")
     
     # Setup environment
-    print("Setting up environment...")
+    print("\n🏗️  Setting up environment...")
     env = setup_environment(config)
+    print(f"✓ Environment created with {env.num_servers} servers")
     
     # Setup DAG parser
     dag_parser = DAGParser(data_folder="data/meta_offloading_20/offload_random20_1")
     
-    # Run tests
-    all_results = {}
+    # Run selected algorithms
+    results = {}
     
-    if args.test_heuristic or (not args.test_heuristic and not args.test_rl):
-        heuristic_results = test_heuristic_algorithms(env, dag_parser, config)
-        all_results.update(heuristic_results)
+    print("\n" + "="*70)
+    print("Starting Algorithm Execution")
+    print("="*70)
     
-    if args.test_rl or (not args.test_heuristic and not args.test_rl):
-        rl_results = test_rl_algorithms(env, config)
-        all_results.update(rl_results)
+    # Heuristic algorithms
+    if user_choices['HEFT']:
+        result = test_heft(env, dag_parser, user_choices['heuristic_tasks'])
+        if result:
+            results['HEFT'] = result
+    
+    if user_choices['PSO']:
+        result = test_pso(env, dag_parser, config, user_choices['heuristic_tasks'])
+        if result:
+            results['PSO'] = result
+    
+    if user_choices['GA']:
+        result = test_ga(env, dag_parser, config, user_choices['heuristic_tasks'])
+        if result:
+            results['GA'] = result
+    
+    # RL algorithms
+    if user_choices['PPO']:
+        result = test_ppo(env, config, user_choices['ppo_episodes'], user_choices['eval_episodes'])
+        if result:
+            results['PPO'] = result
+    
+    if user_choices['GMORL']:
+        result = test_gmorl(env, config, user_choices['gmorl_episodes'], user_choices['eval_episodes'])
+        if result:
+            results['GMORL'] = result
+    
+    if user_choices['TAMPO']:
+        result = test_tampo(env, dag_parser, config, user_choices['tampo_iterations'], user_choices['eval_episodes'])
+        if result:
+            results['TAMPO'] = result
     
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(args.output, timestamp)
-    save_results(all_results, output_dir)
+    output_dir = os.path.join('results', timestamp)
+    save_results(results, output_dir)
     
-    print("\n" + "="*60)
-    print("Testing Complete!")
-    print("="*60)
-    print("\nKey Improvements Made:")
-    print("1. Increased RL training from 100 to 2000 episodes")
-    print("2. Better reward normalization")
-    print("3. Proper evaluation with deterministic policies")
-    print("4. More meta-learning tasks for TAM-PO")
-    print("5. Fixed TAM-PO evaluation to use adapted policy")
+    # Print summary
+    print("\n" + "="*70)
+    print(" "*25 + "EXPERIMENT COMPLETE!")
+    print("="*70)
+    
+    if len(results) > 0:
+        print("\n📊 Results Summary:")
+        print("-" * 70)
+        print(f"{'Algorithm':<15} {'Avg Delay (s)':<15} {'Avg Energy (J)':<15}")
+        print("-" * 70)
+        for alg, metrics in results.items():
+            print(f"{alg:<15} {metrics['avg_delay']:<15.4f} {metrics['avg_energy']:<15.4f}")
+        print("-" * 70)
+        
+        # Find best performers
+        best_delay_alg = min(results.items(), key=lambda x: x[1]['avg_delay'])
+        best_energy_alg = min(results.items(), key=lambda x: x[1]['avg_energy'])
+        
+        print(f"\n🏆 Best Delay: {best_delay_alg[0]} ({best_delay_alg[1]['avg_delay']:.4f}s)")
+        print(f"🏆 Best Energy: {best_energy_alg[0]} ({best_energy_alg[1]['avg_energy']:.4f}J)")
+    
+    print(f"\n📁 Results saved to: {output_dir}")
+    print("\n" + "="*70 + "\n")
 
 if __name__ == "__main__":
     main()

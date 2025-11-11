@@ -1,6 +1,6 @@
 **/*.env
 **/*.venv
-
+**/results
 
 
 # Byte-compiled / optimized / DLL files
